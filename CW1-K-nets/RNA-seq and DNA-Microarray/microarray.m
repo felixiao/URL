@@ -19,6 +19,4 @@ meds=unique(idx);
 % Build Heatmap of the cluster that best 
 % discriminates among the two experimental
 % conditions. 
-h=HeatMap([data(find(idx==meds(4)),:)], ...
-    'ColumnLabels', samples)
-
+h=HeatMap([data(find(idx==meds(4)),:)], 'ColumnLabels', samples)

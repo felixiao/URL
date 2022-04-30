@@ -9,7 +9,7 @@ figure;clf;clc
 
 if ~exist('plot_2d_labels.m', 'file')
     disp('Function: plot_2d_labels is requested for the visualization of the results.');
-    break;
+%     break;
 end
 
 load data31
