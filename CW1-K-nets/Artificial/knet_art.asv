@@ -16,7 +16,7 @@ load data31
 fprintf('Partitioning %d points, ',size(data,1));
 D=pdist(data);Dists=squareform(D);
 tic;idx=knet(Dists, 45);
-writematrix(idx.toarray(),'data31_true.csv')
+writematrix(idx,'data31_true.csv')
 
 % Same results with different k-net architectures:
 % tic;idx=knet(data, [3,15]);toc;
@@ -111,7 +111,7 @@ plot_2d_labels(data, idx, []);
 load birch_grid
 fprintf('Partitioning %d points, ',size(data,1));
 tic;idx=knet(data, [20, 30]);
-writematrix(idx,'birch_grid_true.csv')
+writematrix(idx,'birch_sin_true.csv')
 
 fprintf('into %d clusters.\n',length(unique(idx)));
 toc;subplot(3,3,9);fprintf('\n\n');

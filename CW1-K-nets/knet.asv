@@ -624,7 +624,6 @@ if initialize
     idx=zidx;
 end
 end
-
 function [nDists, nNeighbs, K] = check_nans(Dists, Neighbs, k)
 % Check if there are nan values
 if isempty(Neighbs) && ~isempty(find(isnan(Dists)>0, 1))
@@ -668,7 +667,6 @@ else
     K=k;
 end
 end
-
 function k=setk(N)
 if N <= 10000
     k=2;
