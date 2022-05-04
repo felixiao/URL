@@ -122,15 +122,19 @@ parallel_knets_serial_knet = 0;
 
 if size(k, 2) == 1 && ( (size(Dists,1)==size(Dists,2)) || ~isempty(Neighbs))
     single_knet = 1;
+    fprintf('Single Knet %g ',size(k,2))
 elseif size(k,2)>1 && (size(Dists,1)==size(Dists,2))
     knet_serial_knet = 1;
+    fprintf('Serial Knet %g ',size(k,2))
 elseif size(k,2)>1 && (size(Dists,1)~=size(Dists,2))
     parallel_knets_serial_knet = 1;
     maxiters=1;
+    fprintf('Parallel Knet %g ',size(k,2))
 elseif size(k,2)==1 && (size(Dists,1)~=size(Dists,2))
     parallel_knets_serial_knet = 1;
     k=[setk(size(Dists,1)), k];
     maxiters=1;
+    fprintf('Parallel Knet2 %g %g',size(k,2),k)
 end
 
 %Perform K-net clustering
@@ -604,6 +608,7 @@ end
 D = min(D,D');    %% Make sure distance matrix is symmetric
 for k=1:N
     D = min(D,repmat(D(:,k),[1 N])+repmat(D(k,:),[N 1]));
+
 end
 end
 
