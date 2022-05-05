@@ -109,14 +109,17 @@ class KNet():
     def computeDistanceMatrix(self):
         self.distMat = distance_matrix(self.data,self.data)
         logging.debug(f'DistMat: \n{self.distMat}')
+
     def KNN(self,indexs,k):
         logging.debug(f'KNN K={k} Index:\n {indexs}')
         pc_val = {}
         pc_ind = {}
         pc_sco = {}
         pc_sco_v = []
+        # for i in range(self.length):
         for i in indexs:
             dist = [self.distMat[i,j] for j in indexs]
+            # dist = self.distMat[i,:]
             sv = np.sort(dist)
             si = np.argsort(dist)
             pc_val[i] = sv[:k]
@@ -125,12 +128,13 @@ class KNet():
             pc_sco_v.append(np.mean(pc_val[i]))
         pc_sco_i_sort = [indexs[j] for j in np.argsort(pc_sco_v)]
         logging.debug(f'KNN val:\n{pc_val}\nind:\n{pc_ind}\nsco:\n{pc_sco_i_sort}')
-        return pc_val,pc_ind,pc_sco
+        return pc_val,pc_ind,pc_sco_i_sort
+
     def Selection(self,indexs,pc_ind,pc_sco):
         logging.debug(f'Selection:\n{indexs}\nInd:\n{pc_ind}\nPC Score:\n{pc_sco}')
         modes = []
         points= []
-        for i in pc_sco.keys():
+        for i in pc_sco:
             isin = np.isin(pc_ind[i],points)
             if not np.any(isin):
                 points = np.concatenate((points,pc_ind[i])).astype(int)
@@ -140,22 +144,24 @@ class KNet():
 
     def Assignment(self,indexs,modes):
         centers = modes
+        if self.exact:
+            centers = centers[:self.exact]
         convergence = False
         while not convergence:
             clusters = {}
             points = {}
             for m in centers:
                 clusters[m] = []
-            logging.info(f'cluster:{clusters}')
+            logging.debug(f'cluster:{clusters}')
             for i in indexs:
-                ls_d=[self.distMat[i,j] for j in modes]
-                logging.info(f'lsd: {ls_d}')
+                ls_d=[self.distMat[i,j] for j in centers]
+                logging.debug(f'lsd: {ls_d}')
                 nearest=np.argsort(ls_d)[0]
-                logging.info(f'near: {nearest}')
-                points[i] = modes[nearest]
-                logging.info(f'Point[{i}] = {points[i]}')
+                logging.debug(f'near: {nearest}')
+                points[i] = centers[nearest]
+                logging.debug(f'Point[{i}] = {points[i]}')
 
-                logging.info(f'clusters[{points[i]}] = {clusters[points[i]]}')
+                logging.debug(f'clusters[{points[i]}] = {clusters[points[i]]}')
                 clusters[points[i]] = np.concatenate((clusters[points[i]],[i])).astype(int)
             c = np.zeros(len(centers),dtype=int)
 
@@ -167,8 +173,8 @@ class KNet():
                     sumDist[j] = np.sum([self.distMat[ps[j],q] for q in ps])
 
                 c[i] = ps[np.argsort(sumDist)[0]]
-                logging.info(f'[{i}] center = {c[i]}')
-            logging.info(f'centers:\n{centers}\nc:\n{c}')
+                logging.debug(f'[{i}] center = {c[i]}')
+            logging.debug(f'centers:\n{centers}\nc:\n{c}')
             if np.all(np.isin(c,centers)):
                 logging.info('No Changes! Convergence')
                 convergence = True
@@ -177,6 +183,7 @@ class KNet():
                 centers= c
         logging.debug(f'Modes:\n{centers}\nPoints:\n{points}\nClusters:\n{clusters}')
         return centers, points,clusters
+
     def construction(self,k):
         #distmat    [1,1]   [2,2]   [3,3]   [4,4]
         #[1,1]      0       √2      2       √6
@@ -400,16 +407,39 @@ class KNet():
             else:
                 # EOM:
                 curK=self.k[0]
-                while len(self.modes) < self.exact and curK>1:
-                    logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
+                modes = []
+                points =[]
+                remainP = range(self.length)
+                while len(modes) <self.exact and curK>1:
+                    logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(modes)} ')
                     # 1.  Construction phase
-                    self.construction(curK)
+                    tic = time.time()
+                    pc_val,pc_ind,pc_sco = self.KNN(range(self.length),curK)
+                    logging.info(f'Construction Time: {time.time()-tic:.2f}')
                     # 2.  Selection phase
-                    self.selection()
+                    tic = time.time()
+                    m,p = self.Selection(range(self.length),pc_ind,pc_sco)
+                    logging.info(f'Selection Time: {time.time()-tic:.2f}')
+                    remainP = remainP[remainP!=p]
+                    modes = np.concatenate((modes,m)).astype(int)
                     curK-=1
-                    logging.info(f'After K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
+                    logging.info(f'After K = {curK}\tExact = {self.exact}\tModes = {len(modes)} ')
                 # 3.  Assignment phase
-                self.assignment()
+                tic = time.time()
+                centers, points,clusters = self.Assignment(range(self.length), modes)
+                logging.info(f'Assignment Time: {time.time()-tic:.2f}')
+
+                self.clusterIndex = [points[i] for i in range(len(points))]
+                # while len(self.modes) < self.exact and curK>1:
+                #     logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
+                #     # 1.  Construction phase
+                #     self.construction(curK)
+                #     # 2.  Selection phase
+                #     self.selection()
+                #     curK-=1
+                #     logging.info(f'After K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
+                # # 3.  Assignment phase
+                # self.assignment()
         else:
             # Multi layers
             if not self.exact:
@@ -447,7 +477,7 @@ class KNet():
         pred={}
         pred['True'] = self.labelTrue
         pred['Pred'] = self.clusterIndex
-        pd.DataFrame(pred,columns=['True','Pred']).to_csv('Data31_pred.csv',index=False)
+        pd.DataFrame(pred,columns=['True','Pred']).to_csv('Data4_pred.csv',index=False)
         
 
         # # Check the range of k values
@@ -538,13 +568,14 @@ class KNet():
         
     def show(self):
         tic = time.time()
-        logging.debug('Show')
+        logging.info('Show')
         _,ax= plt.subplots(1,2,sharex=True,sharey=True)
         # ax[0].scatter(self.data[:,0],self.data[:,1],marker='.')
         unique_labels = np.unique(self.labelTrue)
 
         unique_modes=np.unique(self.clusterIndex)
-        logging.debug(f'Label:{len(unique_labels)}  Pred:{len(unique_modes)}')
+        logging.info(f'Label:{len(unique_labels)}  Pred:{len(unique_modes)}')
+        logging.info(f'Label:{unique_labels}\nPred:{unique_modes}')
         np.random.seed(19680801)
         colors = np.random.rand(max(len(unique_labels),len(unique_modes)),3)
         
@@ -576,8 +607,8 @@ class KNet():
         logging.info(f'Show Time: {time.time()-tic:.2f}')
         plt.show()
             
-def pdist(data):
-    return distance_matrix(data,data)
+# def pdist(data):
+#     return distance_matrix(data,data)
 if __name__ == '__main__':
     config = configparser.ConfigParser()
     config.read('config.ini')
@@ -590,7 +621,7 @@ if __name__ == '__main__':
     data_true=pd.read_csv(config["PATH"]["Data_label"],header=None)[0].tolist()
     # data = np.random.rand(1000,2)*5
     tic = time.time()
-    knet = KNet(np.array(data),k=[45],labelTrue=data_true)
+    knet = KNet(np.array(data),k=[150],labelTrue=data_true,exact=4)
     knet.fit().show()
     # knet = KNet(np.array([[1,1],[2,2],[3,3],[4,4],[5,5]]),k=[2])
     # knet.computeDistanceMatrix()
