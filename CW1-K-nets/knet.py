@@ -86,7 +86,7 @@ def PlotData():
 # Serial and parallel connections
 # function [idx, vals, Pnts_Scores] = knet(DN, k, varargin)
 class KNet():
-    def __init__(self,data,k,labelTrue = None,exact=False,geo=3,struct=False,metric='euclidean'):
+    def __init__(self,data,k,labelTrue = None,exact=False,geo=3,struct=False,metric='euclidean',predPath='pred.csv'):
         self.data=data
         self.length=self.data.shape[0]
         self.k=[k] if type(k)==int else k
@@ -98,6 +98,7 @@ class KNet():
         self.exact = exact
         self.modes = []
         self.list_points = []
+        self.predPath = predPath
         if exact:
             logging.info(f'Exact mode with exact {exact} clusters and Initial K = {k}')
         else:
@@ -391,19 +392,6 @@ class KNet():
 
                 self.clusterIndex = [points[i] for i in range(len(points))]
 
-                # # 1.  Construction phase
-                # tic = time.time()
-                # self.construction(self.k[0])
-                # logging.info(f'Construction Time: {time.time()-tic:.2f}')
-
-                # # 2.  Selection phase
-                # tic = time.time()
-                # self.selection()
-                # logging.info(f'Selection Time: {time.time()-tic:.2f}')
-                # # 3.  Assignment phase
-                # tic = time.time()
-                # self.assignment()
-                # logging.info(f'Assignment Time: {time.time()-tic:.2f}')
             else:
                 # EOM:
                 curK=self.k[0]
@@ -414,11 +402,11 @@ class KNet():
                     logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(modes)} ')
                     # 1.  Construction phase
                     tic = time.time()
-                    pc_val,pc_ind,pc_sco = self.KNN(range(self.length),curK)
+                    pc_val,pc_ind,pc_sco = self.KNN(remainP,curK)
                     logging.info(f'Construction Time: {time.time()-tic:.2f}')
                     # 2.  Selection phase
                     tic = time.time()
-                    m,p = self.Selection(range(self.length),pc_ind,pc_sco)
+                    m,p = self.Selection(remainP,pc_ind,pc_sco)
                     logging.info(f'Selection Time: {time.time()-tic:.2f}')
                     remainP = remainP[remainP!=p]
                     modes = np.concatenate((modes,m)).astype(int)
@@ -430,45 +418,67 @@ class KNet():
                 logging.info(f'Assignment Time: {time.time()-tic:.2f}')
 
                 self.clusterIndex = [points[i] for i in range(len(points))]
-                # while len(self.modes) < self.exact and curK>1:
-                #     logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
-                #     # 1.  Construction phase
-                #     self.construction(curK)
-                #     # 2.  Selection phase
-                #     self.selection()
-                #     curK-=1
-                #     logging.info(f'After K = {curK}\tExact = {self.exact}\tModes = {len(self.modes)} ')
-                # # 3.  Assignment phase
-                # self.assignment()
         else:
             # Multi layers
             if not self.exact:
                 # NOM
                 # First Layer:
                 # 1.1  Construction phase
+                remainP = range(self.length)
                 tic = time.time()
-                self.construction(self.k[0])
+                pc_val,pc_ind,pc_sco = self.KNN(remainP,self.k[0])
                 logging.info(f'First Layer: Construction Time: {time.time()-tic:.2f}')
 
                 # 1.2  Selection phase
                 tic = time.time()
-                self.selection()
+                modes,p = self.Selection(remainP,pc_ind,pc_sco)
                 logging.info(f'First Layer: Selection Time: {time.time()-tic:.2f}')
 
                 # Second Layer:
                 # 2.1  Construction phase
                 tic = time.time()
-                selectData = self.data[self.list_points.astype(int),:]
-                val,ind,sco,distMat = self.layerConstruction(self.k[1],selectData)
+                pc_val,pc_ind,pc_sco = self.KNN(p,self.k[1])
                 logging.info(f'Second Layer: Construction Time: {time.time()-tic:.2f}')
                 # 2.2  Selection phase
                 tic = time.time()
-                self.layerSelection(ind,sco)
+                m,p = self.Selection(p,pc_ind,pc_sco)
                 logging.info(f'Second Layer: Selection Time: {time.time()-tic:.2f}')
-                # 2.3 Assignment phase
+
+                # # 2.3 Assignment phase
+                # tic = time.time()
+                # centers, points,clusters = self.Assignment(p, m)
+                # logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
+
+                # 3 Final Assignment phase
                 tic = time.time()
-                self.layerAssignment()
+                centers, points,clusters = self.Assignment(range(self.length), m)
                 logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
+
+                self.clusterIndex = [points[i] for i in range(len(points))]
+                # # 1.1  Construction phase
+                # tic = time.time()
+                # self.construction(self.k[0])
+                # logging.info(f'First Layer: Construction Time: {time.time()-tic:.2f}')
+
+                # # 1.2  Selection phase
+                # tic = time.time()
+                # self.selection()
+                # logging.info(f'First Layer: Selection Time: {time.time()-tic:.2f}')
+
+                # # Second Layer:
+                # # 2.1  Construction phase
+                # tic = time.time()
+                # selectData = self.data[self.list_points.astype(int),:]
+                # val,ind,sco,distMat = self.layerConstruction(self.k[1],selectData)
+                # logging.info(f'Second Layer: Construction Time: {time.time()-tic:.2f}')
+                # # 2.2  Selection phase
+                # tic = time.time()
+                # self.layerSelection(ind,sco)
+                # logging.info(f'Second Layer: Selection Time: {time.time()-tic:.2f}')
+                # # 2.3 Assignment phase
+                # tic = time.time()
+                # self.layerAssignment()
+                # logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
 
 
 
@@ -477,7 +487,7 @@ class KNet():
         pred={}
         pred['True'] = self.labelTrue
         pred['Pred'] = self.clusterIndex
-        pd.DataFrame(pred,columns=['True','Pred']).to_csv('Data4_pred.csv',index=False)
+        pd.DataFrame(pred,columns=['True','Pred']).to_csv(self.predPath,index=False)
         
 
         # # Check the range of k values
@@ -490,81 +500,6 @@ class KNet():
         # initialize=1
         # Dists, Neighbs, K = self.check_nans(Dists, Neighbs)
         return self
-    
-    def check_nans(self,Dists, Neighbs):
-        # Check if there are nan values
-        if (Neighbs is None or len(Neighbs)==0) and np.any(np.isnan(Dists)):
-            print('Nan values detected resolving....\n')
-            K = np.zeros(Dists.shape[1])
-            nNeighbs = []
-            nDists = []
-            for i in range(Dists.shape[1]):
-                # Get Non nan 
-                no_nan_inds=np.where((np.where(np.isnan(a),0,1) + np.where(np.isinf(a),0,1))==2,1,0)*range(1,len(a)+1)
-                no_nan_inds=no_nan_inds[no_nan_inds>0]-1
-                arr = np.array(a)[no_nan_inds]
-                nNeighbs[i] = no_nan_inds[np.argsort(arr)]
-                nDists[i] = np.sort(arr)
-                K[i] = len(no_nan_inds) if len(no_nan_inds)<self.k else self.k
-            return nDists,nNeighbs,K
-        elif Neighbs and len(Neighbs)>0:
-            if self.k.shape[0]==self.k.shape[1]==1:
-                K = self.k[0]*np.ones(len(Dists))
-            return Dists,Neighbs,K
-        else: return None, None,self.k
-
-    def process_input(self,maxiters=100,exact=-1,resolve=1,geo=0,dstep=300,kstep=1,metric='euc',prior=None,struct=False):
-        print('Process input')
-        pidx = prior
-        data=[]
-        nlin=geo
-        metric=metric
-        # if the DN is a dictionary contains meta information 
-        # then get the meta info and data
-        if type(self.DN) == dict:
-            pidx=self.DN['prior']
-            meds=np.unique(pidx)
-            metric=self.DN['metric']
-            data=self.DN['data']
-            # compute the dist matrix for data
-            if data and len(data)>0:
-                self.DN = self.distfun(data[meds,:], data[meds,:], metric, 0)
-        
-        if self.DN.shape[0]==2:
-            Dists = self.DN[0]
-            Neighbs = self.DN[1]
-        else:
-            Dists = self.DN
-            Neighbs = None
-        return Dists,Neighbs,data,struct,exact,kstep,dstep,pidx,metric,maxiters,resolve,nlin
-    
-    def distfun(self,X,C,dist,iter):
-        n,p = X.shape
-        D = np.zeros(n,C.shape[0])
-        nclusts = C.shape[0]
-        if dist == 'euc':
-            for i in range(nclusts):
-                D[:,i] = (X[:,0] - C[i,1])^2
-                for j in range(1,p):
-                    D[:,i] += (X[:,j] - C[i,j])^2
-            D=D^0.5
-        elif dist == 'seuclidean':
-            for i in range(nclusts):
-                D[:,i] = (X[:,0] - C[i,1])^2
-                for j in range(1,p):
-                    D[:,i] += (X[:,j] - C[i,j])^2
-        elif dist == 'hamming':
-            for i in range(nclusts):
-                D[:,i] = abs(X[:,0] - C[i,1])
-                for j in range(1,p):
-                    D[:,i] += abs(X[:,j] - C[i,j])
-                D[:,i] /= p
-        elif dist == 'cityblock':
-            for i in range(nclusts):
-                D[:,i] = abs(X[:,0] - C[i,1])
-                for j in range(1,p):
-                    D[:,i] += abs(X[:,j] - C[i,j])
-        return D
         
     def show(self):
         tic = time.time()
@@ -607,8 +542,7 @@ class KNet():
         logging.info(f'Show Time: {time.time()-tic:.2f}')
         plt.show()
             
-# def pdist(data):
-#     return distance_matrix(data,data)
+
 if __name__ == '__main__':
     config = configparser.ConfigParser()
     config.read('config.ini')
@@ -621,7 +555,7 @@ if __name__ == '__main__':
     data_true=pd.read_csv(config["PATH"]["Data_label"],header=None)[0].tolist()
     # data = np.random.rand(1000,2)*5
     tic = time.time()
-    knet = KNet(np.array(data),k=[150],labelTrue=data_true,exact=4)
+    knet = KNet(np.array(data),k=[3,15],labelTrue=data_true,predPath=config["PATH"]["Data_pred"])
     knet.fit().show()
     # knet = KNet(np.array([[1,1],[2,2],[3,3],[4,4],[5,5]]),k=[2])
     # knet.computeDistanceMatrix()
