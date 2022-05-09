@@ -3,9 +3,13 @@ from matplotlib import markers
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.matlib
 from scipy.spatial import distance_matrix
 import configparser
 import time
+from tqdm import tqdm
+# import os
+from os import path,mkdir
 
 # Todo:
 #       1.    Implement KNet
@@ -86,7 +90,7 @@ def PlotData():
 # Serial and parallel connections
 # function [idx, vals, Pnts_Scores] = knet(DN, k, varargin)
 class KNet():
-    def __init__(self,data,k,labelTrue = None,exact=False,geo=3,struct=False,metric='euclidean',predPath='pred.csv'):
+    def __init__(self,data,k,labelTrue = None,exact=False,geo=0,struct=False,metric='euclidean',resultPath='results/data/'):
         self.data=data
         self.length=self.data.shape[0]
         self.k=[k] if type(k)==int else k
@@ -96,9 +100,13 @@ class KNet():
         self.clusterIndex = np.zeros(self.length).astype(int)
         self.labelTrue = labelTrue
         self.exact = exact
+        self.geo=geo
         self.modes = []
         self.list_points = []
-        self.predPath = predPath
+        if not path.exists(resultPath):
+            mkdir(resultPath)
+        self.resultPath = resultPath
+        logging.info(f'Load {self.resultPath.split("/")[-1]} Length= {self.length}')
         if exact:
             logging.info(f'Exact mode with exact {exact} clusters and Initial K = {k}')
         else:
@@ -107,35 +115,57 @@ class KNet():
             logging.info(f'Multi layers {k}')
         else:
             logging.info(f'Single layer {k[0]}')
+
     def computeDistanceMatrix(self):
         self.distMat = distance_matrix(self.data,self.data)
         logging.debug(f'DistMat: \n{self.distMat}')
 
-    def KNN(self,indexs,k):
-        logging.debug(f'KNN K={k} Index:\n {indexs}')
+    def KNN(self,indexs,k,Dist,geo=0):
+        #distmat    [1,1]   [2,2]   [3,3]   [4,4]
+        #[1,1]      0       √2      2       √6
+        #[2,2]      √2      0       √2      2
+        #[3,3]      2       √2      0       √2
+        #[4,4]      √6      2       √2      0
+
+        #KNN,K=2    [1,1]   [2,2]   [3,3]   [4,4]
+        #0          1,√2    0,√2    1,√2    2,√2
+        #1          3,2     2,√2    3,√2    1,2
+
+        #Score      [1,1]   [2,2]   [3,3]   [4,4]
+        #           1+√2/2  √2      √2      1+√2/2
+        logging.info(f'KNN K={k} Geo={geo} Index: {len(indexs)}')
         pc_val = {}
         pc_ind = {}
         pc_sco = {}
         pc_sco_v = []
+        pc_sco_t = {}
         # for i in range(self.length):
-        for i in indexs:
-            dist = [self.distMat[i,j] for j in indexs]
+        for i in tqdm(range(len(indexs)),desc='Construction',unit='d'):
+            # dist = [Dist[i,j] for j in indexs]
             # dist = self.distMat[i,:]
-            sv = np.sort(dist)
-            si = np.argsort(dist)
-            pc_val[i] = sv[:k]
-            pc_ind[i] = [indexs[j] for j in si[:k]]
-            pc_sco[i] = np.mean(pc_val[i])
-            pc_sco_v.append(np.mean(pc_val[i]))
+            # logging.info(f'[{i}] = index{indexs[i]} {len(Dist[i])}')
+            sv = np.sort(Dist[i])
+            si = np.argsort(Dist[i])
+            pc_val[indexs[i]] = sv[:k]
+            pc_ind[indexs[i]] = [indexs[j] for j in si[:k]]
+            pc_sco[i] = np.mean(pc_val[indexs[i]])
+            pc_sco_t[i] = np.mean(Dist[i])
+            pc_sco_v.append(pc_sco[i])
+        uniq_sco= np.unique(pc_sco_v)
+        for s in uniq_sco:
+            ind, = np.where(pc_sco_v==s)
+            if len(ind)>1:
+                for i in ind:
+                    pc_sco_v[i] = pc_sco_t[i]
         pc_sco_i_sort = [indexs[j] for j in np.argsort(pc_sco_v)]
-        logging.debug(f'KNN val:\n{pc_val}\nind:\n{pc_ind}\nsco:\n{pc_sco_i_sort}')
+        # logging.info(f'KNN val:\n{pc_val}\nind:\n{pc_ind}\nsco:\n{pc_sco_i_sort}')
         return pc_val,pc_ind,pc_sco_i_sort
 
     def Selection(self,indexs,pc_ind,pc_sco):
         logging.debug(f'Selection:\n{indexs}\nInd:\n{pc_ind}\nPC Score:\n{pc_sco}')
         modes = []
         points= []
-        for i in pc_sco:
+        for i in tqdm(pc_sco,desc='Selection',unit='d'):
             isin = np.isin(pc_ind[i],points)
             if not np.any(isin):
                 points = np.concatenate((points,pc_ind[i])).astype(int)
@@ -143,19 +173,20 @@ class KNet():
         logging.debug(f'Modes\n{modes}\nPoints\n{points}')
         return modes,points
 
-    def Assignment(self,indexs,modes):
+    def Assignment(self,indexs,modes,distMat):
         centers = modes
         if self.exact:
             centers = centers[:self.exact]
         convergence = False
+        iteration = 1
         while not convergence:
             clusters = {}
             points = {}
             for m in centers:
                 clusters[m] = []
             logging.debug(f'cluster:{clusters}')
-            for i in indexs:
-                ls_d=[self.distMat[i,j] for j in centers]
+            for i in tqdm(indexs,desc=f'Assign {iteration}',unit='d'):
+                ls_d=[distMat[i,j] for j in centers]
                 logging.debug(f'lsd: {ls_d}')
                 nearest=np.argsort(ls_d)[0]
                 logging.debug(f'near: {nearest}')
@@ -177,200 +208,64 @@ class KNet():
                 logging.debug(f'[{i}] center = {c[i]}')
             logging.debug(f'centers:\n{centers}\nc:\n{c}')
             if np.all(np.isin(c,centers)):
-                logging.info('No Changes! Convergence')
+                logging.info(f'No Changes! Convergence, Iter = {iteration}')
                 convergence = True
             else:
                 logging.info('Changes!')
                 centers= c
+                iteration+=1
         logging.debug(f'Modes:\n{centers}\nPoints:\n{points}\nClusters:\n{clusters}')
         return centers, points,clusters
 
-    def construction(self,k):
-        #distmat    [1,1]   [2,2]   [3,3]   [4,4]
-        #[1,1]      0       √2      2       √6
-        #[2,2]      √2      0       √2      2
-        #[3,3]      2       √2      0       √2
-        #[4,4]      √6      2       √2      0
-
-        #KNN,K=2    [1,1]   [2,2]   [3,3]   [4,4]
-        #0          1,√2    0,√2    1,√2    2,√2
-        #1          3,2     2,√2    3,√2    1,2
-
-        #Score      [1,1]   [2,2]   [3,3]   [4,4]
-        #           1+√2/2  √2      √2      1+√2/2
-
-        # logging.debug(f'DistMat\n{self.distMat}')
-        
-        self.pre_clusters_val = np.zeros((self.length,k))
-        self.pre_clusters_ind = {}
-        self.pre_clusters_sco = np.zeros(self.length)
-        # in EOM only the remain points are selected for KNN
-        for i in range(self.length):
-            dist = self.distMat[i,:]
-            sv = np.sort(dist)
-            si = np.argsort(dist)
-            num_p = 0
-            self.pre_clusters_ind[i] = []
-            for j,sortI in enumerate(si):
-                if sortI not in self.list_points:
-                    self.pre_clusters_ind[i] = np.concatenate((self.pre_clusters_ind[i],[sortI]))
-                    self.pre_clusters_val[i][num_p] = sv[j]
-                    num_p +=1
-                    if num_p>=k:
-                        break
-                
-            # self.pre_clusters_val[i] = sv[:k]
-            # # self.pre_clusters_ind[i] = np.concatenate(([i],si[:k]))
-            # self.pre_clusters_ind[i] = si[:k]
-            self.pre_clusters_sco[i] = np.mean(self.pre_clusters_val[i])
-        # logging.debug(f'KNN index\n{self.pre_clusters_ind}')
-        # logging.debug(f'KNN value\n{self.pre_clusters_val}')
-        # logging.debug(f'KNN score\n{self.pre_clusters_sco}')
-    
-    def selection(self):
-        sv = np.sort(self.pre_clusters_sco)
-        si = np.argsort(self.pre_clusters_sco)
-        # logging.debug(f'Pre Cluster min to max\n{si}\n{sv}\n{self.pre_clusters_ind}')
-
-        for i in si:
-            isin = np.isin(self.pre_clusters_ind[i],self.list_points)
-            # logging.debug(f'[{i}] {isin} {self.pre_clusters_ind[i]}')
-            if not np.any(isin):
-                # self.list_points = np.concatenate((self.list_points,[si[i]]))
-                self.list_points = np.concatenate((self.list_points,self.pre_clusters_ind[i]))
-                self.modes = np.concatenate((self.modes,[i]))
-                # logging.debug(f'[{i}] Add Mode {self.pre_clusters_ind[i]}')
-        
-        # logging.debug(f'Modes\n{self.modes}')
-        # logging.debug(f'List Points\n{self.list_points}')
-
-    def assignment(self):
+    def AssignmentGeo(self,indexs,modes,distMat,maxIteration=100):
+        centers = modes
         if self.exact:
-            self.modes=self.modes[:self.exact]
-        self.nearInd = np.zeros((self.length,self.length))
-        for i in range(self.length):
-            self.nearInd[i]=np.argsort(self.distMat[i,:])
-        # logging.debug(f'Nearest Index\n{self.nearInd}')
-        logging.debug('Nearst Mode')
-        
+            centers = centers[:self.exact]
         convergence = False
-        while not convergence:
-            clusters = [[] for i in self.modes]
+        iteration = 1
+        while not convergence and iteration < maxIteration:
+            clusters = {}
+            points = {}
+            for m in centers:
+                clusters[m] = []
+            logging.debug(f'cluster:{clusters}')
+            for i in tqdm(indexs,desc=f'Assign {iteration}',unit='d'):
+                ls_d=[distMat[i,j] for j in centers]
+                logging.debug(f'lsd: {ls_d}')
+                nearest=np.argsort(ls_d)[0]
+                logging.debug(f'near: {nearest}')
+                points[i] = centers[nearest]
+                logging.debug(f'Point[{i}] = {points[i]}')
 
-            for i in range(self.length):
-                v = [self.nearInd[i].tolist().index(m) for m in self.modes]
-                si= np.argsort(v)
-                mo= self.modes[si[0]]
-                # logging.debug(f'[{i}] {v} {si} {mo}')
-                self.clusterIndex[i] = i if i in self.modes else int(mo)
-                ind = self.modes.tolist().index(self.clusterIndex[i])
-                clusters[ind].append(i)
-            # logging.debug(self.clusterIndex)
-            # logging.debug(f'Clusters\n{clusters}')
-            # find the center point of the clusters
-            center=np.zeros(len(self.modes))
-            for i,c in enumerate(clusters):
-                dataC = self.data[c,:]
-                distMat = distance_matrix(dataC,dataC)
-                sumDist = np.zeros(len(dataC))
-                for j in range(len(dataC)):
-                    sumDist[j] =np.sum(distMat[j,:])
-                center[i] = c[np.argsort(sumDist)[0]]
-            if np.all(np.isin(center,self.modes)):
-                logging.debug('No Changes! Convergence')
-                # logging.debug(center)
+                logging.debug(f'clusters[{points[i]}] = {clusters[points[i]]}')
+                clusters[points[i]] = np.concatenate((clusters[points[i]],[i])).astype(int)
+            c = np.zeros(len(centers),dtype=int)
+
+            for i,k in enumerate(clusters.keys()):
+                sumDist = np.zeros(len(clusters[k]))
+                ps = clusters[k].astype(int)
+                # logging.info(f'PS {ps}')
+                for j in range(len(ps)):
+                    sumDist[j] = np.sum([self.distMat[ps[j],q] for q in ps])
+
+                c[i] = ps[np.argsort(sumDist)[0]]
+                logging.debug(f'[{i}] center = {c[i]}')
+            logging.debug(f'centers:\n{centers}\nc:\n{c}')
+
+            if np.all(np.isin(c,centers)):
+                logging.info(f'No Changes! Convergence, Iter = {iteration}')
                 convergence = True
             else:
-                logging.debug('Changes!')
-                self.modes= center
-                # logging.debug(self.modes)
-
-    def layerConstruction(self,k,data):
-        distMat = distance_matrix(data,data)
-
-        pre_clusters_val = np.zeros((len(data),k))
-        pre_clusters_ind = {}
-        pre_clusters_sco = np.zeros(len(data))
-        for i in range(len(data)):
-            dist = distMat[i,:]
-            sv = np.sort(dist)
-            si = np.argsort(dist)
-            num_p = 0
-            pre_clusters_ind[i] = []
-            for j,sortI in enumerate(si):
-                if sortI not in self.list_points:
-                    pre_clusters_ind[i] = np.concatenate((pre_clusters_ind[i],[sortI]))
-                    pre_clusters_val[i][num_p] = sv[j]
-                    num_p +=1
-                    if num_p>=k:
-                        break
-        pre_clusters_sco[i] = np.mean(pre_clusters_val[i])
-        return pre_clusters_val,pre_clusters_ind,pre_clusters_sco,distMat
-    #   |                          Layer 1                    |                     Layer 2             |
-    #       DistMat 1 2 3 4 5   KNN 1 2 3 4 5   Score     Mode  DistMat(Layer2) KNN      Score   Mode   Assignment
-    # 1 1      1                1                1   d              2 3 4         2 3 4    
-    # 2 2      2                2                2   a      2     2             2         2 b    2 [4]   2 [4,1]
-    # 3 3  ->  3            ->  3            ->  3   c ->   3 ->  3         ->  3      -> 3 a -> 3       3 [5]
-    # 4 4      4                4                4   b      4     4             4         4 c
-    # 5 5      5                5                5   e
-    def layerSelection(self,ind,sco):
-        sv = np.sort(sco)
-        si = np.argsort(sco)
-        # logging.debug(f'Pre Cluster min to max\n{si}\n{sv}\n{self.pre_clusters_ind}')
-
-        for i in si:
-            isin = np.isin(ind[i],self.list_points)
-            # logging.debug(f'[{i}] {isin} {self.pre_clusters_ind[i]}')
-            if not np.any(isin):
-                # self.list_points = np.concatenate((self.list_points,[si[i]]))
-                self.list_points = np.concatenate((self.list_points,ind[i]))
-                self.modes = np.concatenate((self.modes,[i]))
-    
-    def layerAssignment(self,distMat):
-        if self.exact:
-            self.modes=self.modes[:self.exact]
-        length = distMat.shape[0]
-        nearInd = np.zeros((length,length))
-        for i in range(length):
-            nearInd[i]=np.argsort(distMat[i,:])
-        # logging.debug(f'Nearest Index\n{self.nearInd}')
-        logging.debug('Nearst Mode')
-        
-        convergence = False
-        while not convergence:
-            clusters = [[] for i in self.modes]
-
-            for i in range(length):
-                v = [nearInd[i].tolist().index(m) for m in self.modes]
-                si= np.argsort(v)
-                mo= self.modes[si[0]]
-                # logging.debug(f'[{i}] {v} {si} {mo}')
-                self.clusterIndex[i] = i if i in self.modes else int(mo)
-                ind = self.modes.tolist().index(self.clusterIndex[i])
-                clusters[ind].append(i)
-            # logging.debug(self.clusterIndex)
-            # logging.debug(f'Clusters\n{clusters}')
-            # find the center point of the clusters
-            center=np.zeros(len(self.modes))
-            for i,c in enumerate(clusters):
-                dataC = self.data[c,:]
-                distMat = distance_matrix(dataC,dataC)
-                sumDist = np.zeros(len(dataC))
-                for j in range(len(dataC)):
-                    sumDist[j] =np.sum(distMat[j,:])
-                center[i] = c[np.argsort(sumDist)[0]]
-            if np.all(np.isin(center,self.modes)):
-                logging.debug('No Changes! Convergence')
-                # logging.debug(center)
-                convergence = True
-            else:
-                logging.debug('Changes!')
-                self.modes= center
-                # logging.debug(self.modes)
-
+                logging.info('Changes!')
+                centers= c
+                if len(centers)<3:
+                    logging.info(f'centers = {centers}')
+                iteration+=1
+        logging.debug(f'Modes:\n{centers}\nPoints:\n{points}\nClusters:\n{clusters}')
+        return centers, points,clusters
 
     def fit(self):  
-        logging.debug('fit')
+        logging.info('fit')
         self.computeDistanceMatrix()
         if len(self.k) ==1:
             # single layer
@@ -378,7 +273,7 @@ class KNet():
                 # NOM:
                 # 1.  Construction phase
                 tic = time.time()
-                pc_val,pc_ind,pc_sco = self.KNN(range(self.length),self.k[0])
+                pc_val,pc_ind,pc_sco = self.KNN(range(self.length),self.k[0],self.distMat)
                 logging.info(f'Construction Time: {time.time()-tic:.2f}')
 
                 # 2.  Selection phase
@@ -387,7 +282,7 @@ class KNet():
                 logging.info(f'Selection Time: {time.time()-tic:.2f}')
                 # 3.  Assignment phase
                 tic = time.time()
-                centers, points,clusters = self.Assignment(range(self.length), modes)
+                centers, points,clusters = self.Assignment(range(self.length), modes,self.distMat)
                 logging.info(f'Assignment Time: {time.time()-tic:.2f}')
 
                 self.clusterIndex = [points[i] for i in range(len(points))]
@@ -402,7 +297,11 @@ class KNet():
                     logging.info(f'K = {curK}\tExact = {self.exact}\tModes = {len(modes)} ')
                     # 1.  Construction phase
                     tic = time.time()
-                    pc_val,pc_ind,pc_sco = self.KNN(remainP,curK)
+                    Dist = np.zeros((len(remainP),len(remainP)))
+                    for i,c in enumerate(remainP):
+                        Dist[i] = [self.distMat[c,j] for j in remainP]
+
+                    pc_val,pc_ind,pc_sco = self.KNN(remainP,curK,Dist)
                     logging.info(f'Construction Time: {time.time()-tic:.2f}')
                     # 2.  Selection phase
                     tic = time.time()
@@ -414,7 +313,7 @@ class KNet():
                     logging.info(f'After K = {curK}\tExact = {self.exact}\tModes = {len(modes)} ')
                 # 3.  Assignment phase
                 tic = time.time()
-                centers, points,clusters = self.Assignment(range(self.length), modes)
+                centers, points,clusters = self.Assignment(range(self.length), modes,self.distMat)
                 logging.info(f'Assignment Time: {time.time()-tic:.2f}')
 
                 self.clusterIndex = [points[i] for i in range(len(points))]
@@ -424,83 +323,119 @@ class KNet():
                 # NOM
                 # First Layer:
                 # 1.1  Construction phase
-                remainP = range(self.length)
+                logging.info(f'\n{"-"*80}')
                 tic = time.time()
-                pc_val,pc_ind,pc_sco = self.KNN(remainP,self.k[0])
+                pc_val_l1,pc_ind_l1,pc_sco_l1 = self.KNN(range(self.length),self.k[0],self.distMat)
                 logging.info(f'First Layer: Construction Time: {time.time()-tic:.2f}')
 
                 # 1.2  Selection phase
                 tic = time.time()
-                modes,p = self.Selection(remainP,pc_ind,pc_sco)
+                modes_l1,p_l1 = self.Selection(range(self.length),pc_ind_l1,pc_sco_l1)
+                
                 logging.info(f'First Layer: Selection Time: {time.time()-tic:.2f}')
-
+                logging.info(f'First Layer: Num of Modes: {len(modes_l1)}')
+                # datasPx = [self.data[i,0] for i in modes]
+                # datasPy = [self.data[i,1] for i in modes]
+                # _,ax = plt.subplots(1,3,sharex=True,sharey=True)
+                # ax[0].scatter(datasPx,datasPy,marker='.',c='r')
+                # ax[0].set_title('FirstLayer')
+                # 3.  Assignment phase
+                tic = time.time()
+                centers_l1, points_l1,clusters_l1 = self.Assignment(range(self.length), modes_l1,self.distMat)
+                logging.info(f'First Layer: Assignment Time: {time.time()-tic:.2f}')
+                logging.info(f'First Layer: Assignment points {len(points_l1)}')
+                logging.info(f'\n{"-"*80}')
+                # logging.info(f'centers: {centers}')
                 # Second Layer:
                 # 2.1  Construction phase
                 tic = time.time()
-                pc_val,pc_ind,pc_sco = self.KNN(p,self.k[1])
+
+                Dist = np.zeros((len(centers_l1),len(centers_l1)))
+                for i,c in enumerate(centers_l1):
+                    Dist[i] = [self.distMat[c,j] for j in centers_l1]
+                # print(Dist)
+                if self.geo>0:
+                    Dist =self.nlinmap(Dist,geo)
+                    logging.info('Geo Done!')
+
+                pc_val_l2,pc_ind_l2,pc_sco_l2 = self.KNN(centers_l1,self.k[1],Dist)
                 logging.info(f'Second Layer: Construction Time: {time.time()-tic:.2f}')
+                
                 # 2.2  Selection phase
                 tic = time.time()
-                m,p = self.Selection(p,pc_ind,pc_sco)
+                modes_l2,p_l2 = self.Selection(p_l1,pc_ind_l2,pc_sco_l2)
                 logging.info(f'Second Layer: Selection Time: {time.time()-tic:.2f}')
+                logging.info(f'Second Layer: Num of Modes: {len(modes_l2)}')
+                logging.info(f'Second Layer: Selection modes {modes_l2}')
 
-                # # 2.3 Assignment phase
-                # tic = time.time()
-                # centers, points,clusters = self.Assignment(p, m)
-                # logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
+                # 407 870
 
-                # 3 Final Assignment phase
+                # 2.3  Assignment phase
                 tic = time.time()
-                centers, points,clusters = self.Assignment(range(self.length), m)
+                # index in centers_l1
+                modes = [np.where(centers_l1==i)[0][0] for i in modes_l2]
+                print(modes)
+                centers_l2, points_l2,clusters_l2 = self.AssignmentGeo(range(len(centers_l1)), modes,Dist)
+                logging.info(f'Second Layer: Assignment modes {centers_l2}')
+                centers_l2 = [centers_l1[i] for i in centers_l2]
+                points_final = {}
+                for k in points_l2.keys():
+                    points_final[centers_l1[k]] = centers_l1[points_l2[k]]
                 logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
+                logging.info(f'Second Layer: Assignment modes {centers_l2}')
+                logging.info(f'Second Layer: Assignment points {len(points_final)}')
 
-                self.clusterIndex = [points[i] for i in range(len(points))]
-                # # 1.1  Construction phase
+                logging.info(f'\n{"-"*80}')
+                # 3 Final Assignment phase
                 # tic = time.time()
-                # self.construction(self.k[0])
-                # logging.info(f'First Layer: Construction Time: {time.time()-tic:.2f}')
+                # modes_lf, points_lf,clusters_lf= self.Assignment(range(self.length), centers_l2,self.distMat)
+                # logging.info(f'Final Assignment Time: {time.time()-tic:.2f}')
 
-                # # 1.2  Selection phase
-                # tic = time.time()
-                # self.selection()
-                # logging.info(f'First Layer: Selection Time: {time.time()-tic:.2f}')
-
-                # # Second Layer:
-                # # 2.1  Construction phase
-                # tic = time.time()
-                # selectData = self.data[self.list_points.astype(int),:]
-                # val,ind,sco,distMat = self.layerConstruction(self.k[1],selectData)
-                # logging.info(f'Second Layer: Construction Time: {time.time()-tic:.2f}')
-                # # 2.2  Selection phase
-                # tic = time.time()
-                # self.layerSelection(ind,sco)
-                # logging.info(f'Second Layer: Selection Time: {time.time()-tic:.2f}')
-                # # 2.3 Assignment phase
-                # tic = time.time()
-                # self.layerAssignment()
-                # logging.info(f'Second Layer: Assignment Time: {time.time()-tic:.2f}')
-
-
+                self.clusterIndex = [points_final[points_l1[i]] for i in range(self.length)]
 
         logging.debug(np.unique(self.labelTrue))
         logging.debug(np.unique(self.clusterIndex))
         pred={}
         pred['True'] = self.labelTrue
         pred['Pred'] = self.clusterIndex
-        pd.DataFrame(pred,columns=['True','Pred']).to_csv(self.predPath,index=False)
-        
-
-        # # Check the range of k values
-        # if sum(np.where(np.array(self.k)<=0,1,0))>0:
-        #     print(f'Error the value of the resolution parameter cannot be smaller than 1. (K={self.k})\n')
-        #     return None
-        # # Process input
-        # Dists,Neighbs,data,knetstruct,c,kstep,dstep,pidx,metric,maxiters,resolve,nlin = self.process_input()
-
-        # initialize=1
-        # Dists, Neighbs, K = self.check_nans(Dists, Neighbs)
+        pd.DataFrame(pred,columns=['True','Pred']).to_csv(path.join(self.resultPath,'pred.csv'),index=False)
+    
         return self
-        
+    
+    def nlinmap(self,D,K):
+        N = D.shape[0]
+        INF = 1000*np.max(np.max(D))*N
+        ind = np.argsort(D)
+        for i in range(N):
+            D[i,ind[i,1+K:]] = INF
+        # 1  2  3     1  4  7      1  2  3
+        # 4  5  6     2  5  8  ->  2  5  6  
+        # 7  8  9     3  6  9      3  6  9
+        D = np.minimum(D,D.T)
+    
+        #               k=0                                 
+        # 1 2 3 4 5     1 2 3 4 5   1 1 1 1 1    2 3 4 5 6     1 2 3 4 5
+        # 2 3 4 5 1     1 2 3 4 5   2 2 2 2 2    3 4 5 6 7     2 3 4 5 1
+        # 3 4 5 1 2  -> 1 2 3 4 5 + 3 3 3 3 3 =  4 5 6 7 8  -> 3 4 5 1 2
+        # 4 5 1 2[3]    1 2 3 4[5]  4 4 4 4[4]   5 6 7 8[9]    4 5 1 2 3        1 2 3 4 3
+        # 5 1 2 3 4     1 2 3 4 5   5 5 5 5 5    6 7 8 9 10    5 1 2 3 4        2 3 4 5 1
+        #               k=1                                                 ->  3 4 5 1 2
+        #               2 3 4 5 1   2 2 2 2 2    4 5 6 7 3     1 2 3 4 3        4 5 1 2 3
+        #               2 3 4 5 1   3 3 3 3 3    5 6 7 8 4     2 3 4 5 1        3 1 2 3 4
+        #               2 3 4 5 1 + 4 4 4 4 4 =  6 7 8 9 5 ->  3 4 5 1 2
+        #               2 3 4 5 1   5 5 5 5 5    7 8 9 106     4 5 1 2 3
+        #               2 3 4 5 1   1 1 1 1 1    3 4 5 6 1     3 1 2 3 4
+        #               k=2
+        #               3 4 5 1 2   3 3 3 3 3    6 7 8 4 5     1 2 3 4 5    ->  1 2 3 4 3
+        #
+        # D[i,j], D[0,j]+D[i,0], D[1,j]+D[i,1]
+        # D[3,4]=3, 9          , 6
+
+        for i in tqdm(range(N),desc='nlinmap'):
+            mat= np.matlib.repmat(D[:,i],N,1).T+np.matlib.repmat(D[i,:],N,1)
+            D = np.minimum(D,mat)
+        return D
+
     def show(self):
         tic = time.time()
         logging.info('Show')
@@ -535,32 +470,33 @@ class KNet():
             ax[1].scatter(cluster_pred[k][:,0],cluster_pred[k][:,1],marker='.',color=co_pred[k])
         ax[1].set_aspect(1)
         ax[1].set_title('Pred')
-        # for i in range(self.length):
-        #     ax[0].scatter(self.data[i,0],self.data[i,1],marker='+' if i in self.labelTrue else '.',color=co_true[self.labelTrue[i]])
-        #     ax[1].scatter(self.data[i,0],self.data[i,1],marker='+' if i in self.modes else '.',color=co_pred[self.clusterIndex[i]])
+        
         plt.tight_layout(pad=1)
         logging.info(f'Show Time: {time.time()-tic:.2f}')
-        plt.show()
+        # plt.show()
+        plt.savefig(path.join(self.resultPath,'result.png'))
             
 
 if __name__ == '__main__':
+
+    dataset = 'ncircles'
+
     config = configparser.ConfigParser()
     config.read('config.ini')
     logging.basicConfig(level=logging.INFO,format= '%(message)s',handlers=[
-        logging.FileHandler(f'{config["PATH"]["Data"]}.log',mode='a'),
+        logging.FileHandler(f'{config[dataset]["Log"]}',mode='a'),
         logging.StreamHandler()
     ],datefmt="%Y-%m-%d %H:%M:%S",force=True)
-    # PlotData()
-    data = pd.read_csv(config["PATH"]["Data"],header=None)
-    data_true=pd.read_csv(config["PATH"]["Data_label"],header=None)[0].tolist()
-    # data = np.random.rand(1000,2)*5
+
+    data = pd.read_csv(config[dataset]["Data"],header=None)
+    data_true=pd.read_csv(config[dataset]["Data_label"],header=None)[0].tolist()
+    exact = int(config[dataset]["Exact"])
+    Ks = config[dataset]["K"][1:-1].split(',')
+    K = [int(k) for k in Ks]
+    if exact==0:
+        exact = False
+    geo = int(config[dataset]["Geo"])
     tic = time.time()
-    knet = KNet(np.array(data),k=[3,15],labelTrue=data_true,predPath=config["PATH"]["Data_pred"])
+    knet = KNet(np.array(data),k=K,labelTrue=data_true,resultPath=config[dataset]["Result"],exact=exact,geo=geo)
     knet.fit().show()
-    # knet = KNet(np.array([[1,1],[2,2],[3,3],[4,4],[5,5]]),k=[2])
-    # knet.computeDistanceMatrix()
-    # pc_val,pc_ind,pc_sco = knet.KNN([0,1,2,3,4],2)
-    # modes,_ = knet.Selection([0,1,2,3,4],pc_ind,pc_sco)
-    # knet.Assignment([0,1,2,3,4],modes)
     logging.info(f'Time: {time.time()-tic:.2f}')
-    # KNet(data,[1,2]).fit().show()

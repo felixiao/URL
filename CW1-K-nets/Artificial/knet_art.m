@@ -59,7 +59,7 @@ end
 % D=pdist(data);Dists=squareform(D);
 % tic;idx=knet(Dists, [5, 90], 'geo');
 % % writematrix(idx,'data3_true.csv')
-% 
+%  
 % fprintf('into %d clusters.\n',length(unique(idx)));
 % toc;subplot(3,3,4);fprintf('\n\n');
 % plot_2d_labels(data, idx, [], 'rkbgm');
@@ -69,22 +69,23 @@ end
 % fprintf('ncircles Partitioning %d points, ',size(data,1));
 % D=pdist(data);Dists=squareform(D);
 % tic;idx=knet(Dists, [3, 120], 'geo');
-% % writematrix(idx,'ncircles_true.csv')
-% 
+% % tic;idx=knet(Dists, [3, 120]);
+% % % writematrix(idx,'ncircles_true.csv')
+% % 
 % fprintf('into %d clusters.\n',length(unique(idx)));
 % toc;subplot(3,3,5);fprintf('\n\n');
 % plot_2d_labels(data, idx, [],'rb');
 % axis([-20 40 -30 30]);
 % 
-load data50
-fprintf('Data50 Partitioning %d points, ',size(data,1));
-tic;idx=knet(data, [5, 15]);
-% writematrix(idx,'data50_true.csv')
-
-fprintf('into %d clusters.\n',length(unique(idx)));
-toc;subplot(3, 3, 6);fprintf('\n\n');
-plot_2d_labels(data, idx, [])
-axis([0 69000 0 69000]);
+% load data50
+% fprintf('Data50 Partitioning %d points, ',size(data,1));
+% tic;idx=knet(data, [5, 15]);
+% % writematrix(idx,'data50_true.csv')
+% 
+% fprintf('into %d clusters.\n',length(unique(idx)));
+% toc;subplot(3, 3, 6);fprintf('\n\n');
+% plot_2d_labels(data, idx, [])
+% axis([0 69000 0 69000]);
 %  
 % load noisy_spiral
 % fprintf('noisy_spiral Partitioning %d points, ',size(data,1));

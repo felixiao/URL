@@ -161,9 +161,8 @@ elseif knet_serial_knet
     fprintf('resolve=%d\n',resolve);
     fprintf('kstep=%d\n',kstep);
     fprintf('meds[61] = %d meds[227] = %d\n',meds(61)-1,meds(227)-1);
-    
+    fprintf('meds[107] = %d meds[227] = %d\n',meds(107)-1,meds(227)-1);
     [idx, vals]= knet_cluster(nDists, Neighbs, K(2), kstep, resolve, c, maxiters);
-    fprintf('meds[107] = %d meds[227] = %d\n',idx(107)-1,idx(227)-1);
     fprintf('knet_cluster idx\n');
     disp(unique(idx));
     if nlin == 0
@@ -332,18 +331,18 @@ end
 end
 
 function Equal_Score_PCs = detect_instabilities(Scores)
-    fprintf('\n-----detect_instabilities-----\n');
-    Equal_Score_PCs=[];
-    unq_Scores = unique(Scores);
-    am=zeros(1,length(unq_Scores));%[];
-    for i=1:length(unq_Scores)
-        am(i) = length(find(Scores==unq_Scores(i)));
-    end
-    mult_scores = find(am>1);
-    for i=1:length(mult_scores)
-        cm=find(Scores==unq_Scores(mult_scores(i)));
-        Equal_Score_PCs = [Equal_Score_PCs cm];
-    end
+fprintf('\n-----detect_instabilities-----\n');
+Equal_Score_PCs=[];
+unq_Scores = unique(Scores);
+am=zeros(1,length(unq_Scores));%[];
+for i=1:length(unq_Scores)
+    am(i) = length(find(Scores==unq_Scores(i)));
+end
+mult_scores = find(am>1);
+for i=1:length(mult_scores)
+    cm=find(Scores==unq_Scores(mult_scores(i)));
+    Equal_Score_PCs = [Equal_Score_PCs cm];
+end
 end
 
 function [medoids,si] = knet_select(Scores, M)
@@ -426,10 +425,9 @@ if isempty(Neighbs)
     fprintf('isempty(Neighbs)\n');
 
     [val,labels] = min(Dists(meds,:));
-    
     labels=meds(labels);
-%     disp(labels);
     vals(1)=sum(val)/length(meds);
+    
     fprintf('meds size=%d\n',length(meds));
     disp(meds);
     fprintf('labels size=%d\n',length(labels));
