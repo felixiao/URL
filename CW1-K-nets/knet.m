@@ -109,6 +109,7 @@ end
 inps = Process_Input(DN, k, varargin);
 Dists=inps{1};Neighbs=inps{2};data=inps{3};
 c=inps{5};kstep=inps{6};dstep=inps{7};
+fprintf('dstep %d\n',dstep);
 pidx=inps{8};metric=inps{9};
 maxiters=inps{10};resolve=inps{11};
 nlin=inps{12};knetstruct=inps{4};
@@ -160,15 +161,14 @@ elseif knet_serial_knet
     fprintf('c=%d\n',c);
     fprintf('resolve=%d\n',resolve);
     fprintf('kstep=%d\n',kstep);
-    fprintf('meds[61] = %d meds[227] = %d\n',meds(61)-1,meds(227)-1);
     
     [idx, vals]= knet_cluster(nDists, Neighbs, K(2), kstep, resolve, c, maxiters);
-    fprintf('meds[107] = %d meds[227] = %d\n',idx(107)-1,idx(227)-1);
+    
     fprintf('knet_cluster idx\n');
-    disp(unique(idx));
+%     disp(unique(idx));
     if nlin == 0
         fprintf('2 SerialKnet idx\n');
-        disp(idx);
+%         disp(idx);
         fmeds=unique(idx);
         fprintf('2 SerialKnet fmeds\n');
         disp(fmeds);
@@ -177,16 +177,17 @@ elseif knet_serial_knet
         fprintf('3 SerialKnet meds\n');
         disp(meds);
         [idx, vals] = knet_iterations(meds, Dists, Neighbs, maxiters);
+%         disp(unique(idx)-1);
     else
         idx = assign_prior_labels(tidx, idx);
     end
 elseif parallel_knets_serial_knet % data mode
     fprintf('parallel_knets_serial_knet\n');
     if initialize,
+        fprintf('initialize\n');
         [Dists,inds] = initialize_data(Dists, metric);
     end
-    [idx, vals] = partial_knet(Dists, k, ...
-        dstep,  c, resolve, maxiters, kstep, metric);
+    [idx, vals] = partial_knet(Dists, k, dstep,  c, resolve, maxiters, kstep, metric);
     idx = reestate_data(initialize, idx, inds);
 end
 if ~isempty(pidx) && ~isempty(data)  && nlin==0
@@ -225,7 +226,7 @@ if c==-1
     [Scores, M] = PClusters(Dists, Neighbs, k,  resolve);
     [medoids, Pnts_Scores] = knet_select(Scores, M);
     fprintf('knet_cluster medoids size=%d\n',length(medoids));
-    disp(medoids);
+%     disp(medoids);
     if length(unique(medoids)) == 1
         %fprintf('Single cluster result\n');
         idx=[];vals=[];
@@ -348,16 +349,20 @@ end
 
 function [medoids,si] = knet_select(Scores, M)
 % Sort the Pre-Clusters based on their scores
-[~,si]=sort(Scores);tlabels=zeros(1, length(si));
-medoids = zeros(1, length(si));
-fprintf('\n-----knet_select-----\n');
-for i=1:length(si)
-    if sum(tlabels(M{si(i)}))==0
-        tlabels(M{si(i)})=1;
-        medoids(si(i))=1;
+    [~,si]=sort(Scores);
+%     disp(si);
+    tlabels = zeros(1, length(si));
+    medoids = zeros(1, length(si));
+    fprintf('\n-----knet_select-----\n');
+    for i=1:length(si)
+        if sum(tlabels(M{si(i)}))==0
+            tlabels(M{si(i)})=1;
+            medoids(si(i))=1;
+        end
     end
-end
-medoids = find(medoids==1);
+    medoids = find(medoids==1);
+%     disp(medoids);
+    fprintf('%d\n',length(unique(medoids)));
 end
 
 function [vals, labels] = assign_labels(Dists, Neighbs, medoids)
@@ -431,7 +436,7 @@ if isempty(Neighbs)
 %     disp(labels);
     vals(1)=sum(val)/length(meds);
     fprintf('meds size=%d\n',length(meds));
-    disp(meds);
+%     disp(meds);
     fprintf('labels size=%d\n',length(labels));
     fprintf('vals %d\n',vals(1));
     
@@ -538,41 +543,43 @@ function nlabels = assign_prior_labels(prior_labels, tlabels)
 end % Function
 
 function [idx,val] = partial_knet(data, k, dstep,  c, resolve, maxiters, kstep, metric)
-fprintf('\n-----partial_knet-----\n');
-tdata=data;last=1:size(data,1);val=[];
-for lind=1:size(k, 2)-1
-    [Tidx,TInds] = knet_label(tdata, k(lind), kstep, dstep,resolve, maxiters, metric);
-    if lind>1
-        Tidx = assign_prior_labels(last, Tidx);
+    fprintf('\n-----partial_knet-----\n');
+    tdata=data;last=1:size(data,1);val=[];
+    for lind=1:size(k, 2)-1
+        fprintf('-----lind %d-----\n',lind);
+        [Tidx,TInds] = knet_label(tdata, k(lind), kstep, dstep,resolve, maxiters, metric);
+        if lind>1
+            Tidx = assign_prior_labels(last, Tidx);
+            disp(Tidx);
+        end
+        last = Tidx;
+        pmeds = unique(Tidx);tdata=data(pmeds, :);
+    end;
+    STD_KNET_MAX_MEM_LIMIT = 6000;
+    if length(pmeds) < STD_KNET_MAX_MEM_LIMIT
+        fprintf('< STD_KNET_MAX_MEM_LIMIT pmeds %d-----\n',length(pmeds));
+        idx = partial_knet_iters(data, pmeds, Tidx, k, kstep, resolve, c, maxiters, metric);
+    else
+        fprintf('Error: Larger resolution than reserved increase the number of layers in knet\n');
+        idx=[];
     end
-    last = Tidx;
-    pmeds = unique(Tidx);tdata=data(pmeds, :);
-end;
-STD_KNET_MAX_MEM_LIMIT = 6000;
-if length(pmeds) < STD_KNET_MAX_MEM_LIMIT
-    idx = partial_knet_iters(data, pmeds, Tidx, k, kstep, ...
-        resolve, c, maxiters, metric);
-else
-    fprintf('Error: Larger resolution than reserved increase the number of layers in knet\n');
-    idx=[];
-end
 end % Function
 
 function idx = partial_knet_iters(data, pmeds, Tidx,k, kstep, resolve, c, maxiters, metric)
-fprintf('\n-----partial_knet_iters-----\n');
-ndata=data(pmeds, :);
-Dists = distfun(ndata, ndata, metric, 0);
-idx=knet_cluster(Dists, [], k(end), kstep,  resolve, c, maxiters);
-fprintf('Number of medoids in the first layer: %d\n', length(idx));
-if length(idx)>=2
-    idx = assign_prior_labels(Tidx, idx);
-    pmeds=unique(idx);meds=pmeds;
-    [mv,idx]=min(distfun(data, data(meds,:), metric, 1),[],2);
-    zidx=zeros(1,length(idx));for i=1:length(meds),zidx(idx==i)=meds(i);end;idx=zidx;
-    idx = part_knet_iters(data, idx, meds,maxiters,metric);
-else
-    fprintf('Number of clusters less than 2. Reduce the resolution of at least the last layer.\n');
-end
+    fprintf('\n-----partial_knet_iters-----\n');
+    ndata=data(pmeds, :);
+    Dists = distfun(ndata, ndata, metric, 0);
+    idx=knet_cluster(Dists, [], k(end), kstep,  resolve, c, maxiters);
+    fprintf('Number of medoids in the first layer: %d\n', length(idx));
+    if length(idx)>=2
+        idx = assign_prior_labels(Tidx, idx);
+        pmeds=unique(idx);meds=pmeds;
+        [mv,idx]=min(distfun(data, data(meds,:), metric, 1),[],2);
+        zidx=zeros(1,length(idx));for i=1:length(meds),zidx(idx==i)=meds(i);end;idx=zidx;
+        idx = part_knet_iters(data, idx, meds,maxiters,metric);
+    else
+        fprintf('Number of clusters less than 2. Reduce the resolution of at least the last layer.\n');
+    end
 end
 
 function idx = part_knet_iters(data, idx, meds,maxiters,metric)
@@ -603,20 +610,25 @@ end
 end
 
 function [Tidx,inds] = knet_label(data, k, kstep, dstep, resolve, maxiters, metric)
-fprintf('\n-----knet_label-----\n');
-Tidx=[];q=1:dstep:size(data,1);pairs=[];inds=[];
-for i=1:length(q)-1
-    pairs=[pairs; q(i), q(i+1)-1];
-end;
-pairs(end, 2)=size(data,1);
-% parfor i=1:size(pairs, 1)
-for i=1:size(pairs, 1)
-    cRange=pairs(i, 1):pairs(i, 2);
-    Dists = distfun(data(cRange, :), data(cRange, :), metric, 0);
-    idx=knet_cluster(Dists, [], k, kstep, resolve, -1, maxiters);
-    Tidx=[Tidx cRange(idx)];
-    inds=[inds i*ones(1,length(idx))];
-end;
+    fprintf('\n-----knet_label-----\n');
+    Tidx=[];
+    q=1:dstep:size(data,1);
+    pairs=[];
+    inds=[];
+    fprintf('k=%d kstep=%d dstep=%d resolve=%d',k,kstep,dstep,resolve);
+    for i=1:length(q)-1
+        pairs=[pairs; q(i), q(i+1)-1];
+    end;
+    pairs(end, 2)=size(data,1);
+    disp(pairs);
+    % parfor i=1:size(pairs, 1)
+    for i=1:size(pairs, 1)
+        cRange=pairs(i, 1):pairs(i, 2);
+        Dists = distfun(data(cRange, :), data(cRange, :), metric, 0);
+        idx=knet_cluster(Dists, [], k, kstep, resolve, -1, maxiters);
+        Tidx=[Tidx cRange(idx)];
+        inds=[inds i*ones(1,length(idx))];
+    end;
 end
 
 function D = distfun(X, C, dist, iter)
@@ -687,6 +699,7 @@ d=distfun(Dists,Dists(maxi,:),metric);
 end
 
 function idx = reestate_data(initialize, idx, inds)
+fprintf('\n-----reestate_data-----\n');
 meds=unique(idx);
 if initialize
     zidx=zeros(1,length(idx));

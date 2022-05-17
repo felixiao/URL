@@ -12,19 +12,20 @@ if ~exist('plot_2d_labels.m', 'file')
 %     break;
 end
 
-% load data31
-% fprintf('data31 Partitioning %d points, ',size(data,1));
-% D=pdist(data);Dists=squareform(D);
+load data31
+fprintf('data31 Partitioning %d points, ',size(data,1));
+D=pdist(data);Dists=squareform(D);
 % tic;idx=knet(Dists, 45);
 % writematrix(idx.toarray(),'data31_true.csv')
 
 % Same results with different k-net architectures:
-% tic;idx=knet(data, [3,15]);toc;
+tic;idx=knet(data, [3,15]);toc;
 % tic;idx=knet(data, [3,3,5]);toc;
-% 
-% fprintf('into %d clusters.\n',length(unique(idx)));
-% toc;subplot(3,3,1);fprintf('\n\n');
-% plot_2d_labels(data, idx, []);axis([2 30 3 31]);
+% ids=idx-1;
+% writematrix(ids,'data31_[3,15]_true.csv')
+fprintf('into %d clusters.\n',length(unique(idx)));
+toc;subplot(3,3,1);fprintf('\n\n');
+plot_2d_labels(data, idx, []);axis([2 30 3 31]);
 % 
 % load data7
 % fprintf('data7 Partitioning %d points, ',size(data,1));
@@ -44,22 +45,23 @@ end
 % fprintf('data4 Partitioning %d points, ',size(data,1));
 % D=pdist(data);Dists=squareform(D);
 % 
-% tic;idx=knet(Dists, 150, 'exact', 4);
-% % writematrix(idx,'data4_true.csv')
-% % Same results with different k-net architectures: 
-% %tic;idx=knet(data, [3, 50], 'exact', 4);toc;
-% % tic;idx=knet(data, [3,3,15], 'exact', 4);toc;
+% % tic;idx=knet(Dists, 150, 'exact', 4);
 % 
+% % Same results with different k-net architectures: 
+% tic;idx=knet(data, [3, 50], 'exact', 8);toc;
+% % tic;idx=knet(data, [3,3,15], 'exact', 4);toc;
+% writematrix(idx,'data4_[3,50]_exact8_true.csv')
 % fprintf('into %d clusters.\n',length(unique(idx)));
 % toc;subplot(3,3, 3);fprintf('\n\n');
-% plot_2d_labels(data, idx, [], 'rgbk');
+% plot_2d_labels(data, idx, []);
 
 % load data3
 % fprintf('data3 Partitioning %d points, ',size(data,1));
 % D=pdist(data);Dists=squareform(D);
-% tic;idx=knet(Dists, [5, 90], 'geo');
-% % writematrix(idx,'data3_true.csv')
-%  
+% % tic;idx=knet(Dists, [5, 90], 'geo');
+% tic;idx=knet(Dists, [5, 90],'exact',5);
+% writematrix(idx,'data3_exact5_true.csv')
+% 
 % fprintf('into %d clusters.\n',length(unique(idx)));
 % toc;subplot(3,3,4);fprintf('\n\n');
 % plot_2d_labels(data, idx, [], 'rkbgm');
@@ -68,9 +70,10 @@ end
 % load ncircles
 % fprintf('ncircles Partitioning %d points, ',size(data,1));
 % D=pdist(data);Dists=squareform(D);
-% tic;idx=knet(Dists, [3, 120], 'geo');
-% % tic;idx=knet(Dists, [3, 120]);
-% % % writematrix(idx,'ncircles_true.csv')
+% % tic;idx=knet(Dists, [3, 120], 'geo');
+% tic;idx=knet(Dists, [3, 120]);
+% ids = idx-1
+% % writematrix(ids,'ncircles_geo0_true.csv')
 % % 
 % fprintf('into %d clusters.\n',length(unique(idx)));
 % toc;subplot(3,3,5);fprintf('\n\n');
